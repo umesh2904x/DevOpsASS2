@@ -1,14 +1,21 @@
-name: CI - Build and Test
+name: Q1 CI - Build and Test
 
 on:
   push:
     branches: [main, develop]
+    paths: ['q1-ci-cd-pipeline/**']
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+    paths: ['q1-ci-cd-pipeline/**']
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: q1-ci-cd-pipeline
 
 jobs:
   build-test:
-    name: Build, Lint and Test
+    name: Lint, Test and Build
     runs-on: ubuntu-latest
 
     steps:
@@ -20,6 +27,7 @@ jobs:
         with:
           node-version: '20'
           cache: npm
+          cache-dependency-path: q1-ci-cd-pipeline/package-lock.json
 
       - name: Install dependencies
         run: npm ci || npm install
@@ -39,8 +47,8 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-info
-          path: dist/
+          name: q1-build-info
+          path: q1-ci-cd-pipeline/dist/
 
   docker-build:
     name: Build Docker Image
@@ -48,16 +56,12 @@ jobs:
     needs: build-test
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: q1-ci-cd-pipeline
           push: false
           tags: task-api:${{ github.sha }}
           cache-from: type=gha
