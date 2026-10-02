@@ -22,7 +22,9 @@ jobs:
 
       - name: Read version
         id: ver
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -37,8 +39,8 @@ jobs:
           context: q3-end-to-end-devops
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}:latest
+            ${{ steps.ver.outputs.IMAGE }}:${{ steps.ver.outputs.VERSION }}
+            ${{ steps.ver.outputs.IMAGE }}:latest
 
       - name: Deploy stack
         run: |
@@ -84,7 +86,7 @@ jobs:
             echo "|-------|-------|"
             echo "| Version | \`${{ steps.ver.outputs.VERSION }}\` |"
             echo "| Commit | \`${{ github.sha }}\` |"
-            echo "| Image | \`ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.VERSION }}\` |"
+            echo "| Image | \`${{ steps.ver.outputs.IMAGE }}:${{ steps.ver.outputs.VERSION }}\` |"
             echo "| Deployed by | \`${{ github.actor }}\` |"
             echo "| Run | \`${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\` |"
           } >> $GITHUB_STEP_SUMMARY
