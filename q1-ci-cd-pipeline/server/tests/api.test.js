@@ -57,3 +57,21 @@ test('unknown route returns 404 json', async () => {
   assert.strictEqual(res.status, 404);
   assert.ok(res.body.error);
 });
+
+test('GET /metrics exposes prometheus text format', async () => {
+  const res = await request(app).get('/metrics');
+  assert.strictEqual(res.status, 200);
+  assert.match(res.headers['content-type'], /text\/plain/);
+  assert.match(res.text, /task_api_up 1/);
+  assert.match(res.text, /task_api_requests_total \d+/);
+  assert.match(res.text, /task_api_build_info\{/);
+});
+
+test('metrics counters increase after a write', async () => {
+  const before = await request(app).get('/metrics');
+  const beforeVal = Number(before.text.match(/task_api_tasks_created_total (\d+)/)[1]);
+  await request(app).post('/api/tasks').send({ title: 'metrics test' });
+  const after = await request(app).get('/metrics');
+  const afterVal = Number(after.text.match(/task_api_tasks_created_total (\d+)/)[1]);
+  assert.strictEqual(afterVal, beforeVal + 1);
+});
