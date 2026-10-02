@@ -96,12 +96,27 @@ jobs:
           python - <<'PY' >> $GITHUB_STEP_SUMMARY
           import os, mlflow
           mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-          c = mlflow.MLflowClient()
-          vs = c.search_model_versions("name='cancer-detector'")
+          client = getattr(mlflow, "MlflowClient", None) or mlflow.MLflowClient
+          c = client()
+          vs = list(c.search_model_versions("name='cancer-detector'"))
           if not vs:
               print("no versions registered")
           for mv in vs:
-              print(f"- version `{mv.version}` | run `{mv.run_id[:8]}` | aliases `{list(mv.aliases)}` | tags `{dict(mv.tags)}`")
+              try:
+                  aliases = list(mv.aliases)
+              except Exception:
+                  aliases = []
+              try:
+                  tags = dict(mv.tags)
+              except Exception:
+                  tags = {}
+              print(f"- version `{mv.version}` | run `{mv.run_id[:8]}` | aliases `{aliases}` | tags `{tags}`")
+          for alias in ("champion",):
+              try:
+                  mv = c.get_model_version_by_alias("cancer-detector", alias)
+                  print(f"- alias `{alias}` -> version `{mv.version}` (run `{mv.run_id[:8]}`)")
+              except Exception as exc:
+                  print(f"- alias `{alias}` not set ({type(exc).__name__})")
           PY
 
       - name: Screenshot the MLflow UI
