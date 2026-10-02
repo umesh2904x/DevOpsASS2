@@ -23,9 +23,6 @@ q1-ci-cd-pipeline/
 ├── monitoring/
 │   ├── prometheus.yml      scrape config (api:3000/metrics every 15s)
 │   └── grafana/            provisioning
-├── .github/workflows/
-│   ├── ci.yml              lint -> test -> build -> docker build
-│   └── cd.yml              tag v* -> push image -> compose deploy -> smoke test
 ├── Dockerfile              multi-stage: build then slim runtime, non-root user
 └── docker-compose.yml      api + prometheus + grafana
 ```
@@ -59,7 +56,12 @@ curl http://localhost:3000/api/health
 
 ## The Pipeline
 
-### Continuous Integration (`ci.yml`)
+> The workflow files live at the **repository root** in `.github/workflows/`
+> because GitHub Actions only discovers workflows there. They are named
+> `q1-ci.yml` and `q1-cd.yml`, and each one uses
+> `working-directory: q1-ci-cd-pipeline`.
+
+### Continuous Integration (`q1-ci.yml`)
 
 Runs on every push to `main`/`develop` and on every pull request.
 
@@ -73,7 +75,7 @@ Runs on every push to `main`/`develop` and on every pull request.
 
 Any failing step fails the job, which blocks the PR.
 
-### Continuous Deployment (`cd.yml`)
+### Continuous Deployment (`q1-cd.yml`)
 
 Runs when a `v*` tag is pushed, or manually via `workflow_dispatch`.
 

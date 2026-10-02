@@ -34,8 +34,10 @@ q2-mlflow-mlops/
 │       ├── provisioning/datasources/datasources.yml
 │       ├── provisioning/dashboards/dashboards.yml
 │       └── dashboards/mlops-dashboard.json
-└── .github/workflows/mlops.yml
 ```
+
+> The workflow lives at the repository root as `.github/workflows/q2-mlops.yml`
+> (GitHub Actions only discovers workflows in the root `.github/workflows/`).
 
 ## Run Locally
 
@@ -147,7 +149,7 @@ Six candidates, all tracked under one experiment:
 
 ## CI/CD
 
-`.github/workflows/mlops.yml` runs on pushes to `main` that touch ML files, weekly,
+`.github/workflows/q2-mlops.yml` runs on pushes to `main` that touch ML files, weekly,
 or on demand:
 
 1. **train** - starts an MLflow service container, runs `train.py`, prints the run

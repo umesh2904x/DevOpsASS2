@@ -9,12 +9,16 @@ deployment -> monitoring -> feedback into backlog**.
 |-------|------|----------|
 | 1. Agile planning | User stories, sprint backlog, kanban | `docs/AGILE_PLANNING.md` |
 | 2. Version control | Git flow (main / develop / feature) | `docs/GIT_WORKFLOW.md` |
-| 3. CI | GitHub Actions `ci.yml` | lint + tests + build + image |
-| 4. CD | GitHub Actions `cd.yml` | tagged release -> compose deploy |
+| 3. CI | GitHub Actions `q3-ci.yml` | lint + tests + build + image |
+| 4. CD | GitHub Actions `q3-cd.yml` | tagged release -> compose deploy |
 | 5. Deployment | Docker Compose | 5 services running |
 | 6. Monitoring | Prometheus + Grafana + Alertmanager | dashboards + alerts |
 
 Architecture diagrams: `../docs/ARCHITECTURE.md`.
+
+> Workflow files live at the repository root in `.github/workflows/` as
+> `q3-ci.yml`, `q3-cd.yml` and `q3-nightly.yml`, because GitHub Actions only
+> discovers workflows in the root `.github/workflows/` directory.
 
 ## Project Layout
 
@@ -33,10 +37,6 @@ q3-end-to-end-devops/
 │   ├── alerts.yml           BookstoreDown, HighErrorRate, SlowRequests
 │   ├── alertmanager.yml
 │   └── grafana/             datasource + auto-provisioned dashboard
-├── .github/workflows/
-│   ├── ci.yml               lint -> test -> build -> push image
-│   ├── cd.yml               tag v* -> compose deploy -> smoke test + summary
-│   └── nightly-monitoring.yml  daily traffic + verify monitoring stack
 ├── Dockerfile               build stage runs tests, runtime stage is non-root
 └── docker-compose.yml       bookstore, postgres, prometheus, grafana, alertmanager
 ```
