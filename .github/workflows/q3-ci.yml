@@ -3,10 +3,14 @@ name: Q3 CI - Continuous Integration
 on:
   push:
     branches: [main, develop, 'feature/**']
-    paths: ['q3-end-to-end-devops/**']
+    paths:
+      - 'q3-end-to-end-devops/**'
+      - '.github/workflows/q3-*.yml'
   pull_request:
     branches: [main, develop]
-    paths: ['q3-end-to-end-devops/**']
+    paths:
+      - 'q3-end-to-end-devops/**'
+      - '.github/workflows/q3-*.yml'
   workflow_dispatch:
 
 defaults:

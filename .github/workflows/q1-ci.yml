@@ -3,10 +3,14 @@ name: Q1 CI - Build and Test
 on:
   push:
     branches: [main, develop]
-    paths: ['q1-ci-cd-pipeline/**']
+    paths:
+      - 'q1-ci-cd-pipeline/**'
+      - '.github/workflows/q1-*.yml'
   pull_request:
     branches: [main, develop]
-    paths: ['q1-ci-cd-pipeline/**']
+    paths:
+      - 'q1-ci-cd-pipeline/**'
+      - '.github/workflows/q1-*.yml'
   workflow_dispatch:
 
 defaults:

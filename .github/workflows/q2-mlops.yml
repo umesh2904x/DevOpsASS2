@@ -3,7 +3,9 @@ name: Q2 MLOps - Train, Register, Deploy, Monitor
 on:
   push:
     branches: [main]
-    paths: ['q2-mlflow-mlops/**']
+    paths:
+      - 'q2-mlflow-mlops/**'
+      - '.github/workflows/q2-*.yml'
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1'
@@ -66,10 +68,21 @@ jobs:
           mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
           e = mlflow.get_experiment_by_name("breast-cancer-classifier")
           df = mlflow.search_runs([e.experiment_id], order_by=["metrics.f1 DESC"])
-          cols = ["run_name", "params.algorithm", "metrics.accuracy",
-                  "metrics.precision", "metrics.recall", "metrics.f1", "metrics.roc_auc"]
-          cols = [c for c in cols if c in df.columns]
-          print(df[cols].to_markdown(index=False))
+
+          want = ["run_name", "params.algorithm", "metrics.accuracy",
+                  "metrics.precision", "metrics.recall", "metrics.f1",
+                  "metrics.roc_auc"]
+          cols = [c for c in want if c in df.columns]
+          sub = df[cols]
+
+          print("| " + " | ".join(cols) + " |")
+          print("|" + "|".join(["---"] * len(cols)) + "|")
+          for _, row in sub.iterrows():
+              cells = []
+              for c in cols:
+                  v = row[c]
+                  cells.append(f"{v:.4f}" if isinstance(v, float) else str(v))
+              print("| " + " | ".join(cells) + " |")
           PY
 
       - name: Model registry versions
