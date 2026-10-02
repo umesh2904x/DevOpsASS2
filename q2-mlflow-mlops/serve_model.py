@@ -50,8 +50,8 @@ def load_model():
         import json
         meta.update(json.load(open("model_meta.json")))
 
-    client = mlflow.MLflowClient()
-    mv = client.get_model_version_by_alias(MODEL_NAME, ALIAS)
+    client = getattr(mlflow, "MlflowClient", None) or mlflow.MLflowClient
+    mv = client().get_model_version_by_alias(MODEL_NAME, ALIAS)
     MODEL_INFO.labels(version=str(mv.version), run_id=mv.run_id[:8]).set(1)
     print(f"Model loaded: version {mv.version}")
     return mlflow_model

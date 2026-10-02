@@ -67,17 +67,41 @@ def build_models():
     }
 
 
+def get_client():
+    """MLflow 3.x renamed MlflowClient, 2.x spells it MLflowClient."""
+    factory = getattr(mlflow, "MlflowClient", None) or getattr(mlflow, "MLflowClient")
+    return factory()
+
+
 def log_sklearn_model(model, sample, predictions):
-    """Works with both MLflow 2.x (artifact_path) and 3.x (name)."""
+    """Log the model to MLflow.
+
+    Uses pickle/cloudpickle serialization instead of the default skops format,
+    because skops reflects over every scikit-learn estimator (which imports the
+    compiled sklearn.cluster / sklearn.svm modules) and breaks on some systems.
+    Works with both MLflow 2.x (artifact_path) and 3.x (name).
+    """
     signature = infer_signature(sample, predictions)
+    extra = {"input_example": sample[:5], "signature": signature}
+
+    try:
+        from mlflow.sklearn import SERIALIZATION_FORMAT_PICKLE
+        extra["serialization_format"] = SERIALIZATION_FORMAT_PICKLE
+    except ImportError:
+        pass
+
     try:
         mlflow.sklearn.log_model(
             sk_model=model, name="model",
-            input_example=sample[:5], signature=signature,
+            input_example=extra.pop("input_example"),
+            signature=extra["signature"],
+            serialization_format=extra["serialization_format"],
         )
     except TypeError:
         mlflow.sklearn.log_model(
-            model, "model", input_example=sample[:5], signature=signature,
+            model, "model",
+            input_example=extra["input_example"],
+            signature=extra["signature"],
         )
 
 
@@ -157,7 +181,7 @@ def promote_best(results):
     best = max(results, key=lambda r: r["f1"])
     print(f"\nBest run: {best['tag']} with f1={best['f1']:.4f}")
 
-    client = mlflow.MLflowClient()
+    client = get_client()
 
     model_uri = f"runs:/{best['run_id']}/model"
     registered = mlflow.register_model(model_uri=model_uri, name=MODEL_NAME)
