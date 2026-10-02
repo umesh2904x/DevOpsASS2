@@ -1,0 +1,29 @@
+groups:
+  - name: bookstore-alerts
+    rules:
+      - alert: BookstoreDown
+        expr: bookstore_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bookstore service is DOWN"
+          description: "bookstore_up metric is 0 for more than 1 minute"
+
+      - alert: HighErrorRate
+        expr: rate(bookstore_errors_5xx_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on bookstore"
+          description: "More than 0.5 server errors per second over 5 minutes"
+
+      - alert: SlowRequests
+        expr: bookstore_request_latency_ms > 500
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bookstore requests are slow"
+          description: "Last request latency above 500ms"

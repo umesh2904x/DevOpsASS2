@@ -1,0 +1,16 @@
+.venv/
+node_modules/
+dist/
+coverage/
+mlruns/
+mlflow.db
+*.log
+*.err
+__pycache__/
+*.pyc
+scaler.pkl
+experiment_comparison.csv
+model_meta.json
+evidence/*.log
+.DS_Store
+Thumbs.db

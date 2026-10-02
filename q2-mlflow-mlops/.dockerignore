@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+mlruns/
+mlflow.db
+mlflow-server.log
+mlflow-server.err
+*.log
+scaler.pkl
+experiment_comparison.csv

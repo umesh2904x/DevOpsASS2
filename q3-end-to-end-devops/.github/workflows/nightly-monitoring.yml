@@ -1,0 +1,57 @@
+name: Nightly - Monitoring Verification
+
+on:
+  schedule:
+    - cron: '30 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify monitoring stack
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start stack
+        run: docker compose up -d
+
+      - name: Wait for app
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then echo "app up"; exit 0; fi
+            sleep 5
+          done
+          echo "app never came up"; docker compose logs; exit 1
+
+      - name: Generate traffic
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/health > /dev/null
+            curl -sf -X POST http://localhost:3000/api/books \
+              -H 'Content-Type: application/json' \
+              -d "{\"title\":\"Nightly Book $i\",\"price\":199}" > /dev/null
+            curl -sf -X POST http://localhost:3000/api/orders \
+              -H 'Content-Type: application/json' \
+              -d '{"items":[{"bookId":1,"qty":1}]}' > /dev/null
+          done
+
+      - name: Check Prometheus targets
+        run: |
+          curl -s 'http://localhost:9090/api/v1/targets' \
+            | python -c "import sys,json;d=json.load(sys.stdin);[print(t['labels']['job'],t['health']) for t in d['data']['activeTargets']]"
+
+      - name: Check Prometheus alerts
+        run: |
+          curl -s 'http://localhost:9090/api/v1/alerts' \
+            | python -c "import sys,json;d=json.load(sys.stdin);print('firing alerts:',len(d['data']['alerts']))"
+
+      - name: Check Grafana health
+        run: curl -sf http://localhost:3001/api/health
+
+      - name: Save Grafana dashboard screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monitoring-evidence
+          path: evidence/

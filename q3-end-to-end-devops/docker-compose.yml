@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  bookstore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bookstore:1.0.0
+    container_name: bookstore
+    ports:
+      - "3000:3000"
+    environment:
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      GIT_COMMIT: ${GIT_COMMIT:-local}
+      BUILD_NUMBER: ${BUILD_NUMBER:-local}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks: [devops-net]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bookstore-db
+    environment:
+      POSTGRES_USER: bookstore
+      POSTGRES_PASSWORD: bookstore123
+      POSTGRES_DB: bookstore
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookstore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [devops-net]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: bookstore-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    networks: [devops-net]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: bookstore-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    networks: [devops-net]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: bookstore-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks: [devops-net]
+
+volumes:
+  pgdata:
+  prom-data:
+  grafana-data:
+
+networks:
+  devops-net:
+    driver: bridge
