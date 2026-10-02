@@ -9,6 +9,10 @@ defaults:
   run:
     working-directory: q1-ci-cd-pipeline
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   deploy:
     name: Deploy with Docker Compose

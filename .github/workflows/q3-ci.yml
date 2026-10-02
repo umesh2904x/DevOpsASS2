@@ -13,6 +13,10 @@ defaults:
   run:
     working-directory: q3-end-to-end-devops
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   quality-gate:
     name: Lint, Test, Build
