@@ -67,6 +67,20 @@ def build_models():
     }
 
 
+def log_sklearn_model(model, sample, predictions):
+    """Works with both MLflow 2.x (artifact_path) and 3.x (name)."""
+    signature = infer_signature(sample, predictions)
+    try:
+        mlflow.sklearn.log_model(
+            sk_model=model, name="model",
+            input_example=sample[:5], signature=signature,
+        )
+    except TypeError:
+        mlflow.sklearn.log_model(
+            model, "model", input_example=sample[:5], signature=signature,
+        )
+
+
 def run_trials():
     X, y, class_names = get_data()
     X_train, X_test, y_train, y_test = train_test_split(
@@ -122,12 +136,7 @@ def run_trials():
             )
             mlflow.log_text(str(confusion_matrix(y_test, pred)), "confusion_matrix.txt")
 
-            mlflow.sklearn.log_model(
-                sk_model=model,
-                name="model",
-                input_example=Xte[:5],
-                signature=infer_signature(Xte, pred),
-            )
+            log_sklearn_model(model, Xte, pred)
 
             mlflow.set_tag("status", "trained")
             results.append({"run_id": mlflow.active_run().info.run_id, "tag": tag,

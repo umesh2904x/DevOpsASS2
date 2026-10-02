@@ -12,24 +12,14 @@ defaults:
   run:
     working-directory: q2-mlflow-mlops
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   train:
     name: Track experiments and register model
     runs-on: ubuntu-latest
-
-    services:
-      mlflow:
-        image: ghcr.io/mlflow/mlflow:v2.16.2
-        ports:
-          - 5000:5000
-        env:
-          MLFLOW_BACKEND_STORE_URI: sqlite:////mlflow/mlflow.db
-          MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
-        options: >-
-          --health-cmd "curl -f http://localhost:5000/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 12
 
     steps:
       - uses: actions/checkout@v4
@@ -40,48 +30,106 @@ jobs:
           cache: pip
           cache-dependency-path: q2-mlflow-mlops/requirements.txt
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Train, log params and metrics, register model
-        env:
-          MLFLOW_TRACKING_URI: http://localhost:5000
-        run: python train.py --tracking-uri http://localhost:5000
-
-      - name: Experiment comparison in job summary
+      - name: Start MLflow tracking server
         run: |
-          echo "### MLflow Experiment: breast-cancer-classifier" >> $GITHUB_STEP_SUMMARY
+          nohup python -m mlflow server \
+            --host 127.0.0.1 --port 5000 \
+            --backend-store-uri sqlite:///mlflow.db \
+            > mlflow-server.log 2>&1 &
+          echo $! > mlflow.pid
+          for i in $(seq 1 40); do
+            if python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5000/health')" 2>/dev/null; then
+              echo "MLflow server is up after ${i}x3s"; exit 0
+            fi
+            sleep 3
+          done
+          echo "MLflow server failed to start"; tail -40 mlflow-server.log; exit 1
+
+      - name: Train, log params and metrics, register best model
+        env:
+          MLFLOW_TRACKING_URI: http://127.0.0.1:5000
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python train.py --tracking-uri http://127.0.0.1:5000
+
+      - name: Experiment comparison table
+        env:
+          MLFLOW_TRACKING_URI: http://127.0.0.1:5000
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: |
+          echo "### Q2 - MLflow Experiment: breast-cancer-classifier" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python - <<'PY' >> $GITHUB_STEP_SUMMARY
-          import mlflow
-          mlflow.set_tracking_uri("http://localhost:5000")
+          import os, mlflow
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
           e = mlflow.get_experiment_by_name("breast-cancer-classifier")
           df = mlflow.search_runs([e.experiment_id], order_by=["metrics.f1 DESC"])
-          cols = ["run_name", "metrics.accuracy", "metrics.precision",
-                  "metrics.recall", "metrics.f1", "metrics.roc_auc"]
+          cols = ["run_name", "params.algorithm", "metrics.accuracy",
+                  "metrics.precision", "metrics.recall", "metrics.f1", "metrics.roc_auc"]
+          cols = [c for c in cols if c in df.columns]
           print(df[cols].to_markdown(index=False))
           PY
 
       - name: Model registry versions
+        env:
+          MLFLOW_TRACKING_URI: http://127.0.0.1:5000
+          MLFLOW_DISABLE_AGENT_HINT: "1"
         run: |
-          echo "### Model Registry" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Model Registry: cancer-detector" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python - <<'PY' >> $GITHUB_STEP_SUMMARY
-          import mlflow
-          mlflow.set_tracking_uri("http://localhost:5000")
+          import os, mlflow
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
           c = mlflow.MLflowClient()
-          for mv in c.search_model_versions("name='cancer-detector'"):
-              print(f"- version `{mv.version}` run `{mv.run_id[:8]}` tags `{dict(mv.tags)}` aliases `{mv.aliases}`")
+          vs = c.search_model_versions("name='cancer-detector'")
+          if not vs:
+              print("no versions registered")
+          for mv in vs:
+              print(f"- version `{mv.version}` | run `{mv.run_id[:8]}` | aliases `{list(mv.aliases)}` | tags `{dict(mv.tags)}`")
           PY
 
+      - name: Screenshot the MLflow UI
+        run: |
+          mkdir -p evidence
+          npm install --no-save playwright@1.47.0
+          npx playwright install --with-deps chromium
+          node - <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ viewport: { width: 1600, height: 1000 } });
+            await p.goto('http://127.0.0.1:5000', { waitUntil: 'networkidle' });
+            await p.waitForTimeout(5000);
+            await p.screenshot({ path: 'evidence/mlflow-experiments.png', fullPage: true });
+            await b.close();
+            console.log('mlflow screenshot saved');
+          })();
+          JS
+
+      - name: Save training evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          cp -f mlflow-server.log evidence/ 2>/dev/null || true
+          cp -f experiment_comparison.csv evidence/ 2>/dev/null || true
+          cp -f model_meta.json evidence/ 2>/dev/null || true
+          cp -f scaler.pkl evidence/ 2>/dev/null || true
+          ls -la evidence/ || true
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: q2-scaler
-          path: q2-mlflow-mlops/scaler.pkl
+          name: q2-mlflow-evidence
+          path: q2-mlflow-mlops/evidence/
 
   test:
     name: Verify serving module
     runs-on: ubuntu-latest
     needs: train
+
     defaults:
       run:
         working-directory: q2-mlflow-mlops
@@ -93,12 +141,15 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - name: Import check
-        run: python -c "import serve_model; print('serve_model imports cleanly')"
+        env:
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python -c "import serve_model, load_test; print('serve_model and load_test import cleanly')"
 
   deploy:
-    name: Deploy model API with Docker Compose
+    name: Deploy model API and verify monitoring
     runs-on: ubuntu-latest
     needs: test
+
     defaults:
       run:
         working-directory: q2-mlflow-mlops
@@ -114,54 +165,96 @@ jobs:
           push: false
           tags: mlops-model-api:${{ github.sha }}
 
-      - name: Start MLflow and model server
-        run: docker compose up -d mlflow model-server
+      - name: Start MLflow, train, serve, Prometheus and Grafana
+        run: docker compose up -d
 
-      - name: Wait and smoke test
+      - name: Wait for the model API
         run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8000/health > /dev/null; then echo "API UP"; break; fi
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "model API is up after $((i*5))s"; exit 0
+            fi
             sleep 5
           done
-          curl -sf http://localhost:8000/health
+          echo "model API never came up"; docker compose logs --tail 100; exit 1
+
+      - name: Smoke test /health and /predict
+        run: |
+          echo "--- /health ---"
+          curl -sf http://localhost:8000/health; echo ""
+          echo "--- /predict ---"
+          curl -sf -X POST http://localhost:8000/predict \
+            -H 'Content-Type: application/json' \
+            -d '{"instances":[{"mean radius":17.4,"mean texture":19.2,"mean perimeter":122.0,"mean area":1001.0,"mean smoothness":0.098,"mean compactness":0.15,"mean concavity":0.14,"mean concave points":0.08,"mean symmetry":0.19,"mean fractal dimension":0.05,"radius error":1.2,"texture error":1.4,"perimeter error":12.0,"area error":90.0,"smoothness error":0.006,"compactness error":0.02,"concavity error":0.02,"concave points error":0.01,"symmetry error":0.02,"fractal dimension error":0.003,"worst radius":25.0,"worst texture":30.0,"worst perimeter":180.0,"worst area":2000.0,"worst smoothness":0.15,"worst compactness":0.25,"worst concavity":0.3,"worst concave points":0.15,"worst symmetry":0.4,"worst fractal dimension":0.08}]}'
           echo ""
-          curl -sf http://localhost:8000/metrics | head -10
+
+      - name: Generate traffic
+        run: |
+          for i in $(seq 1 40); do
+            curl -sf -X POST http://localhost:8000/predict \
+              -H 'Content-Type: application/json' \
+              -d '{"instances":[{"mean radius":17.4,"mean texture":19.2,"mean perimeter":122.0,"mean area":1001.0,"mean smoothness":0.098,"mean compactness":0.15,"mean concavity":0.14,"mean concave points":0.08,"mean symmetry":0.19,"mean fractal dimension":0.05,"radius error":1.2,"texture error":1.4,"perimeter error":12.0,"area error":90.0,"smoothness error":0.006,"compactness error":0.02,"concavity error":0.02,"concave points error":0.01,"symmetry error":0.02,"fractal dimension error":0.003,"worst radius":25.0,"worst texture":30.0,"worst perimeter":180.0,"worst area":2000.0,"worst smoothness":0.15,"worst compactness":0.25,"worst concavity":0.3,"worst concave points":0.15,"worst symmetry":0.4,"worst fractal dimension":0.08}]}' \
+              -o /dev/null
+            sleep 1
+          done
+          echo "traffic sent"
+
+      - name: Verify Prometheus and Grafana
+        run: |
+          sleep 25
+          echo "--- prometheus health ---"
+          curl -sf http://localhost:9090/-/healthy; echo ""
+          echo "--- prometheus targets ---"
+          curl -s 'http://localhost:9090/api/v1/targets' \
+            | python -c "import sys,json;d=json.load(sys.stdin);[print(t['labels']['job'],'->',t['health']) for t in d['data']['activeTargets']]"
+          echo "--- prometheus query: ml_predictions_total ---"
+          curl -s 'http://localhost:9090/api/v1/query?query=ml_predictions_total' | python -m json.tool | head -30
+          echo "--- grafana health ---"
+          curl -sf http://localhost:3001/api/health; echo ""
+
+      - name: Screenshot Grafana MLOps dashboard
+        run: |
+          mkdir -p evidence
+          npm install --no-save playwright@1.47.0
+          npx playwright install --with-deps chromium
+          node - <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const b = await chromium.launch();
+            const p = await b.newPage({ viewport: { width: 1600, height: 1000 } });
+            await p.goto('http://localhost:3001/login', { waitUntil: 'networkidle' });
+            await p.fill('input[name="user"]', 'admin');
+            await p.fill('input[name="password"]', 'admin123');
+            await p.click('button[type="submit"]');
+            await p.waitForTimeout(4000);
+            await p.goto('http://localhost:3001/d/mlops-model-api', { waitUntil: 'networkidle' });
+            await p.waitForTimeout(14000);
+            await p.screenshot({ path: 'evidence/grafana-mlops-dashboard.png', fullPage: true });
+            await p.goto('http://localhost:9090/targets', { waitUntil: 'networkidle' });
+            await p.waitForTimeout(4000);
+            await p.screenshot({ path: 'evidence/prometheus-targets.png', fullPage: true });
+            await b.close();
+            console.log('screenshots saved');
+          })();
+          JS
+
+      - name: Save deployment evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          docker compose ps > evidence/compose-ps.txt 2>&1
+          docker compose logs --tail 200 > evidence/container-logs.txt 2>&1
+          curl -sf http://localhost:8000/metrics > evidence/model-metrics.txt 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q2-deployment-evidence
+          path: q2-mlflow-mlops/evidence/
 
       - name: Container logs
         if: always()
-        run: docker compose logs --tail 40
-
-  monitor:
-    name: Verify Prometheus and Grafana
-    runs-on: ubuntu-latest
-    needs: deploy
-    defaults:
-      run:
-        working-directory: q2-mlflow-mlops
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Start monitoring stack
-        run: docker compose up -d prometheus grafana
-
-      - name: Prometheus healthy
-        run: |
-          for i in $(seq 1 20); do
-            if curl -sf http://localhost:9090/-/healthy > /dev/null; then echo "PROM UP"; break; fi
-            sleep 5
-          done
-          curl -sf http://localhost:9090/-/healthy
-
-      - name: Prometheus targets
-        run: |
-          curl -s 'http://localhost:9090/api/v1/targets' \
-            | python -c "import sys,json;d=json.load(sys.stdin);[print(t['labels']['job'],'->',t['health']) for t in d['data']['activeTargets']]"
-
-      - name: Grafana healthy
-        run: |
-          sleep 10
-          curl -sf http://localhost:3001/api/health
+        run: docker compose logs --tail 60
 
       - name: Cleanup
         if: always()
